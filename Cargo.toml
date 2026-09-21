@@ -168,12 +168,11 @@ rusqlite-macros = { path = "rusqlite-macros", version = "0.4.2", optional = true
 libsqlite3-sys = { path = "libsqlite3-sys", version = "0.36.0" }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-libsqlite3-sys = { path = "libsqlite3-sys", version = "0.36.0", optional = true }
 # Worker fork: use the raw env-import "worker" host adapter instead of
 # wasm-bindgen's Web Crypto/Date glue, so a Cloudflare Worker (which has no
 # wasm-bindgen JS runtime attached) can instantiate this module. See
 # https://github.com/gptenv/sqlite-wasm-rs's src/host/worker.rs.
-sqlite-wasm-rs = { version = "0.6.1", default-features = false, features = ["worker"], optional = true }
+sqlite-wasm-rs = { version = "0.6.1", default-features = false, features = ["worker"] }
 chrono = { version = "0.4.38", optional = true, default-features = false, features = ["wasmbind"] }
 jiff = { version = "0.2", optional = true, default-features = false, features = ["js"] }
 time = { version = "0.3.36", optional = true, features = ["wasm-bindgen"] }
