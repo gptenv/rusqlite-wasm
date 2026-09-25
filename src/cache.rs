@@ -174,14 +174,14 @@ impl StatementCache {
     }
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod test {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
     use super::StatementCache;
     use crate::{Connection, Result};
-    use fallible_iterator::FallibleIterator as _;
+    use fallible_iterator::FallibleIterator;
 
     impl StatementCache {
         fn clear(&self) {

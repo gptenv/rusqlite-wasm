@@ -20,7 +20,7 @@
 - [ ] `sqlite3_os_init`
 - [ ] `sqlite3_os_end`
 
-- [ ] `sqlite3_config` (partially, `fn` callback for SQLITE_CONFIG_LOG) (cannot be used by a loadable extension)
+- [ ] `sqlite3_config` (partially, `fn` callback for SQLITE_CONFIG_LOG)
 - [X] `sqlite3_db_config`
 
 - [X] `sqlite3_extended_result_codes` (not public, internal use only)
@@ -38,7 +38,7 @@
 
 - [ ] `sqlite3_complete`
 
-- [X] `sqlite3_busy_handler` (Boxed callback, destroyed by SQLite)
+- [X] `sqlite3_busy_handler` (`fn` callback)
 - [X] `sqlite3_busy_timeout`
 
 - [ ] `sqlite3_get_table`
@@ -60,11 +60,11 @@
 
 - [ ] `sqlite3_randomness`
 
-- [X] `sqlite3_set_authorizer` (Boxed callback, destroyed by SQLite)
-- [ ] `sqlite3_trace` deprecated
-- [ ] `sqlite3_profile` deprecated
-- [X] `sqlite3_trace_v2` (Boxed callback, destroyed by SQLite)
-- [X] `sqlite3_progress_handler` (Boxed callback, destroyed by SQLite)
+- [X] `sqlite3_set_authorizer` (`FnMut` callback, reference kept)
+- [X] `sqlite3_trace` deprecated (`fn` callback)
+- [X] `sqlite3_profile` deprecated (`fn` callback)
+- [X] `sqlite3_trace_v2` (`fn` callback, no context data)
+- [X] `sqlite3_progress_handler` (`FnMut` callback, reference kept)
 
 - [ ] `sqlite3_open`
 - [X] `sqlite3_open_v2`
@@ -110,9 +110,9 @@
 - [ ] `sqlite3_bind_text`
 - [X] `sqlite3_bind_text64`
 - [ ] `sqlite3_bind_value`
-- [X] `sqlite3_bind_pointer`
-- [ ] `sqlite3_bind_zeroblob`
-- [X] `sqlite3_bind_zeroblob64`
+- [X] `sqlite3_bind_pointer` (not public, internal use only)
+- [X] `sqlite3_bind_zeroblob`
+- [ ] `sqlite3_bind_zeroblob64`
 
 - [X] `sqlite3_bind_parameter_count`
 - [X] `sqlite3_bind_parameter_name`
@@ -134,7 +134,7 @@
 - [ ] `sqlite3_column_int`
 - [X] `sqlite3_column_int64`
 - [X] `sqlite3_column_text`
-- [X] `sqlite3_column_value` (not public, internal use only)
+- [X] `sqlite3_column_value`
 - [X] `sqlite3_column_bytes` (not public, internal use only)
 - [X] `sqlite3_column_type`
 
@@ -149,7 +149,7 @@
 - [X] `sqlite3_value_double`
 - [ ] `sqlite3_value_int`
 - [X] `sqlite3_value_int64`
-- [X] `sqlite3_value_pointer`
+- [X] `sqlite3_value_pointer` (not public, internal use only)
 - [X] `sqlite3_value_text`
 - [X] `sqlite3_value_bytes` (not public, internal use only)
 - [X] `sqlite3_value_type`
@@ -167,8 +167,8 @@
 - [X] `sqlite3_context_db_handle` (Connection ref)
 - [X] `sqlite3_get_auxdata`
 - [X] `sqlite3_set_auxdata`
-- [X] `sqlite3_get_clientdata`
-- [X] `sqlite3_set_clientdata`
+- [ ] `sqlite3_get_clientdata`
+- [ ] `sqlite3_set_clientdata`
 
 - [ ] `sqlite3_result_blob`
 - [X] `sqlite3_result_blob64`
@@ -183,9 +183,9 @@
 - [ ] `sqlite3_result_text`
 - [X] `sqlite3_result_text64`
 - [X] `sqlite3_result_value`
-- [X] `sqlite3_result_pointer`
-- [ ] `sqlite3_result_zeroblob`
-- [X] `sqlite3_result_zeroblob64`
+- [X] `sqlite3_result_pointer` (not public, internal use only)
+- [X] `sqlite3_result_zeroblob`
+- [ ] `sqlite3_result_zeroblob64`
 - [X] `sqlite3_result_subtype`
 
 - [ ] `sqlite3_create_collation`
@@ -203,10 +203,10 @@
 - [X] `sqlite3_txn_state`
 - [X] `sqlite3_next_stmt` (not public, internal use only)
 
-- [X] `sqlite3_commit_hook` (Boxed callback, destroyed by SQLite)
-- [X] `sqlite3_rollback_hook` (Boxed callback, destroyed by SQLite)
+- [X] `sqlite3_commit_hook` (`FnMut` callback, reference kept)
+- [X] `sqlite3_rollback_hook` (`FnMut` callback, reference kept)
 - [ ] `sqlite3_autovacuum_pages`
-- [X] `sqlite3_update_hook` (Boxed callback, destroyed by SQLite)
+- [X] `sqlite3_update_hook` (`FnMut` callback, reference kept)
 
 - [ ] `sqlite3_enable_shared_cache`
 - [ ] `sqlite3_release_memory`
@@ -217,7 +217,7 @@
 - [X] `sqlite3_table_column_metadata`
 
 - [X] `sqlite3_load_extension`
-- [X] `sqlite3_enable_load_extension` (cannot be used by a loadable extension)
+- [X] `sqlite3_enable_load_extension`
 - [X] `sqlite3_auto_extension` (`fn` callbak with Connection ref)
 - [X] `sqlite3_cancel_auto_extension`
 - [X] `sqlite3_reset_auto_extension`
@@ -248,7 +248,7 @@
 - [ ] `sqlite3_mutex_notheld`
 - [ ] `sqlite3_db_mutex`
 
-- [X] `sqlite3_file_control`
+- [X] `sqlite3_file_control` (not public, internal use only)
 - [ ] `sqlite3_test_control`
 
 - [ ] `sqlite3_keyword_count`
@@ -283,7 +283,7 @@
 
 - [X] `sqlite3_log`
 
-- [X] `sqlite3_wal_hook` (Boxed callback, destroyed by SQLite)
+- [X] `sqlite3_wal_hook` (`fn` callback with Connection ref)
 - [ ] `sqlite3_wal_autocheckpoint`
 - [X] `sqlite3_wal_checkpoint`
 - [X] `sqlite3_wal_checkpoint_v2`
@@ -304,7 +304,7 @@
 
 - [X] `sqlite3_db_cacheflush`
 
-- [X] `sqlite3_preupdate_hook` (Boxed callback with Connection ref, destroyed by SQLite) (cannot be used by a loadable extension)
+- [X] `sqlite3_preupdate_hook` (`FnMut` callback with Connection ref, reference kept)
 - [X] `sqlite3_preupdate_old`
 - [X] `sqlite3_preupdate_count`
 - [X] `sqlite3_preupdate_depth`

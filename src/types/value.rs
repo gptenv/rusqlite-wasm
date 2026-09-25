@@ -29,7 +29,7 @@ impl From<Null> for Value {
 impl From<bool> for Value {
     #[inline]
     fn from(i: bool) -> Self {
-        Self::Integer(i64::from(i))
+        Self::Integer(i as i64)
     }
 }
 

@@ -1,6 +1,6 @@
 //! Run-Time Limits
 
-use crate::{Connection, Result, ffi};
+use crate::{ffi, Connection, Result};
 use std::ffi::c_int;
 
 /// Run-Time limit categories, for use with [`Connection::limit`] and
@@ -43,8 +43,6 @@ pub enum Limit {
     /// The maximum number of auxiliary worker threads that a single prepared
     /// statement may start.
     SQLITE_LIMIT_WORKER_THREADS = ffi::SQLITE_LIMIT_WORKER_THREADS,
-    /// The maximum depth of the parse tree on any expression.
-    SQLITE_LIMIT_PARSER_DEPTH = 12, // 3.53.0
     /// Only used for testing
     #[cfg(test)]
     INVALID = -1,
@@ -133,7 +131,6 @@ mod test {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn test_limit() -> Result<()> {
         let db = Connection::open_in_memory()?;
         db.set_limit(Limit::SQLITE_LIMIT_LENGTH, 1024)?;
@@ -175,10 +172,9 @@ mod test {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         assert_eq!(0, db.limit(Limit::SQLITE_LIMIT_WORKER_THREADS)?);
 
-        assert!(
-            db.set_limit(Limit::SQLITE_LIMIT_WORKER_THREADS, -1)
-                .is_err()
-        );
+        assert!(db
+            .set_limit(Limit::SQLITE_LIMIT_WORKER_THREADS, -1)
+            .is_err());
         assert!(db.set_limit(Limit::INVALID, 0).is_err());
         assert!(db.limit(Limit::INVALID).is_err());
         Ok(())

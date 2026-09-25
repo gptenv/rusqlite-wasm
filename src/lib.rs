@@ -6,7 +6,7 @@
 //! intended.
 //!
 //! ```rust
-//! use rusqlite::{Connection, Result, params};
+//! use rusqlite::{params, Connection, Result};
 //!
 //! #[derive(Debug)]
 //! struct Person {
@@ -57,22 +57,14 @@
 pub use fallible_iterator;
 pub use fallible_streaming_iterator;
 
-#[cfg(not(all(
-    target_family = "wasm",
-    target_os = "unknown",
-    any(test, feature = "ffi-sqlite-wasm-rs")
-)))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use libsqlite3_sys as ffi;
-#[cfg(all(
-    target_family = "wasm",
-    target_os = "unknown",
-    any(test, feature = "ffi-sqlite-wasm-rs")
-))]
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub use sqlite_wasm_rs as ffi;
 
 use std::cell::RefCell;
 use std::default::Default;
-use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
+use std::ffi::{c_char, c_int, c_uint, CStr, CString};
 use std::fmt;
 
 use std::path::Path;
@@ -93,13 +85,14 @@ pub use crate::cache::CachedStatement;
 pub use crate::column::Column;
 #[cfg(feature = "column_metadata")]
 pub use crate::column::ColumnMetadata;
-pub use crate::error::{Error, to_sqlite_error};
+pub use crate::error::{to_sqlite_error, Error};
 pub use crate::ffi::ErrorCode;
 #[cfg(feature = "load_extension")]
 pub use crate::load_extension_guard::LoadExtensionGuard;
-pub use crate::params::{Params, ParamsFromIter, params_from_iter};
+pub use crate::params::{params_from_iter, Params, ParamsFromIter};
 pub use crate::row::{AndThenRows, Map, MappedRows, Row, RowIndex, Rows};
 pub use crate::statement::{Statement, StatementStatus};
+#[cfg(feature = "modern_sqlite")]
 pub use crate::transaction::TransactionState;
 pub use crate::transaction::{DropBehavior, Savepoint, Transaction, TransactionBehavior};
 pub use crate::types::ToSql;
@@ -160,9 +153,7 @@ pub(crate) mod util;
 
 // Actually, only sqlite3_enable_load_extension is disabled (not sqlite3_load_extension)
 #[cfg(all(feature = "loadable_extension", feature = "load_extension"))]
-compile_error!(
-    "feature \"loadable_extension\" and feature \"load_extension\" cannot be enabled at the same time"
-);
+compile_error!("feature \"loadable_extension\" and feature \"load_extension\" cannot be enabled at the same time");
 
 // Number of cached prepared statements we'll hold on to.
 #[cfg(feature = "cache")]
@@ -306,9 +297,7 @@ impl<T> OptionalExtension<T> for Result<T> {
 }
 
 unsafe fn errmsg_to_string(errmsg: *const c_char) -> String {
-    unsafe { CStr::from_ptr(errmsg) }
-        .to_string_lossy()
-        .into_owned()
+    CStr::from_ptr(errmsg).to_string_lossy().into_owned()
 }
 
 #[cfg(any(feature = "functions", feature = "vtab", test))]
@@ -338,23 +327,20 @@ fn str_for_sqlite(
     (ptr, len as ffi::sqlite3_uint64, dtor_info)
 }
 
+#[cfg(unix)]
 fn path_to_cstring(p: &Path) -> Result<CString> {
-    cfg_select! {
-        unix => {
-            use std::os::unix::ffi::OsStrExt as _;
-            Ok(CString::new(p.as_os_str().as_bytes())?)
-        }
-        _ => {
-            let s = p.to_str().ok_or_else(|| Error::InvalidPath(p.to_owned()))?;
-            Ok(CString::new(s)?)
-        }
-    }
+    use std::os::unix::ffi::OsStrExt;
+    Ok(CString::new(p.as_os_str().as_bytes())?)
+}
+
+#[cfg(not(unix))]
+fn path_to_cstring(p: &Path) -> Result<CString> {
+    let s = p.to_str().ok_or_else(|| Error::InvalidPath(p.to_owned()))?;
+    Ok(CString::new(s)?)
 }
 
 /// Shorthand for `Main` database.
 pub const MAIN_DB: &CStr = c"main";
-/// Shorthand for default name.
-pub const DEFAULT_NAME: Option<&'static str> = None;
 /// Shorthand for `Temp` database.
 pub const TEMP_DB: &CStr = c"temp";
 
@@ -635,7 +621,9 @@ impl Connection {
     /// likely to be more robust.
     #[inline]
     pub fn path(&self) -> Option<&str> {
-        unsafe { inner_connection::db_filename(std::marker::PhantomData, self.handle(), MAIN_DB) }
+        unsafe {
+            crate::inner_connection::db_filename(std::marker::PhantomData, self.handle(), MAIN_DB)
+        }
     }
 
     /// Attempts to free as much heap memory as possible from the database
@@ -700,7 +688,7 @@ impl Connection {
     ///
     /// Returns `Err(QueryReturnedNoRows)` if no results are returned. If the
     /// query truly is optional, you can call
-    /// [`.optional()`](OptionalExtension::optional) on the result of
+    /// [`.optional()`](crate::OptionalExtension::optional) on the result of
     /// this to get a `Result<Option<T>>` (requires that the trait
     /// `rusqlite::OptionalExtension` is imported).
     ///
@@ -832,13 +820,13 @@ impl Connection {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use rusqlite::{Connection, DEFAULT_NAME, Result};
+    /// # use rusqlite::{Connection, Result};
     /// fn load_my_extension(conn: &Connection) -> Result<()> {
     ///     // Safety: We fully trust the loaded extension and execute no untrusted SQL
     ///     // while extension loading is enabled.
     ///     unsafe {
     ///         conn.load_extension_enable()?;
-    ///         let r = conn.load_extension("my/trusted/extension", DEFAULT_NAME);
+    ///         let r = conn.load_extension("my/trusted/extension", None::<&str>);
     ///         conn.load_extension_disable()?;
     ///         r
     ///     }
@@ -876,7 +864,7 @@ impl Connection {
     #[cfg(feature = "load_extension")]
     #[inline]
     pub unsafe fn load_extension_enable(&self) -> Result<()> {
-        unsafe { self.db.borrow_mut().enable_load_extension(1) }
+        self.db.borrow_mut().enable_load_extension(1)
     }
 
     /// Disable loading of SQLite extensions.
@@ -905,13 +893,13 @@ impl Connection {
     /// ## Example
     ///
     /// ```rust,no_run
-    /// # use rusqlite::{Connection, DEFAULT_NAME, Result, LoadExtensionGuard};
+    /// # use rusqlite::{Connection, Result, LoadExtensionGuard};
     /// fn load_my_extension(conn: &Connection) -> Result<()> {
     ///     // Safety: we don't execute any SQL statements while
     ///     // extension loading is enabled.
     ///     let _guard = unsafe { LoadExtensionGuard::new(conn)? };
     ///     // Safety: `my_sqlite_extension` is highly trustworthy.
-    ///     unsafe { conn.load_extension("my_sqlite_extension", DEFAULT_NAME) }
+    ///     unsafe { conn.load_extension("my_sqlite_extension", None::<&str>) }
     /// }
     /// ```
     ///
@@ -935,11 +923,9 @@ impl Connection {
         dylib_path: P,
         entry_point: Option<N>,
     ) -> Result<()> {
-        unsafe {
-            self.db
-                .borrow_mut()
-                .load_extension(dylib_path.as_ref(), entry_point)
-        }
+        self.db
+            .borrow_mut()
+            .load_extension(dylib_path.as_ref(), entry_point)
     }
 
     /// Get access to the underlying SQLite database connection handle.
@@ -970,7 +956,7 @@ impl Connection {
     /// This function is unsafe because improper use may impact the Connection.
     #[inline]
     pub unsafe fn from_handle(db: *mut ffi::sqlite3) -> Result<Self> {
-        let db = unsafe { InnerConnection::new(db, false) };
+        let db = InnerConnection::new(db, false);
         Ok(Self {
             db: RefCell::new(db),
             #[cfg(feature = "cache")]
@@ -994,16 +980,14 @@ impl Connection {
         if p_api.is_null() {
             return ffi::SQLITE_ERROR;
         }
-        unsafe {
-            match ffi::rusqlite_extension_init2(p_api)
-                .map_err(Error::from)
-                .and(Self::from_handle(db))
-                .and_then(init)
-            {
-                Err(err) => to_sqlite_error(&err, pz_err_msg),
-                Ok(true) => ffi::SQLITE_OK_LOAD_PERMANENTLY,
-                _ => ffi::SQLITE_OK,
-            }
+        match ffi::rusqlite_extension_init2(p_api)
+            .map_err(Error::from)
+            .and(Self::from_handle(db))
+            .and_then(init)
+        {
+            Err(err) => to_sqlite_error(&err, pz_err_msg),
+            Ok(true) => ffi::SQLITE_OK_LOAD_PERMANENTLY,
+            _ => ffi::SQLITE_OK,
         }
     }
 
@@ -1021,7 +1005,7 @@ impl Connection {
     /// `ffi::sqlite3_open`().
     #[inline]
     pub unsafe fn from_handle_owned(db: *mut ffi::sqlite3) -> Result<Self> {
-        let db = unsafe { InnerConnection::new(db, true) };
+        let db = InnerConnection::new(db, true);
         Ok(Self {
             db: RefCell::new(db),
             #[cfg(feature = "cache")]
@@ -1090,6 +1074,7 @@ impl Connection {
     /// ## Failure
     ///
     /// Return an `Error::InvalidDatabaseIndex` if `index` is out of range.
+    #[cfg(feature = "modern_sqlite")] // 3.39.0
     pub fn db_name(&self, index: usize) -> Result<String> {
         unsafe {
             let db = self.handle();
@@ -1103,68 +1088,9 @@ impl Connection {
     }
 
     /// Determine whether an interrupt is currently in effect
+    #[cfg(feature = "modern_sqlite")] // 3.41.0
     pub fn is_interrupted(&self) -> bool {
         self.db.borrow().is_interrupted()
-    }
-
-    /// Set client Data
-    ///
-    /// # Safety
-    /// This function is unsafe because it returns a raw pointer.
-    /// You should not alter the callbacks stored by `rusqlite`.
-    pub unsafe fn set_clientdata<T: Send + 'static, N: Name>(
-        &self,
-        name: N,
-        data: Option<T>,
-    ) -> Result<*mut T> {
-        self.db
-            .borrow_mut()
-            .set_clientdata(name, data, |_, _| ffi::SQLITE_OK)
-    }
-    /// Retrieve client data
-    ///
-    /// # Safety
-    /// Caller must be certain that data associated to `name` is of type `T`.
-    pub unsafe fn get_clientdata<T, N: Name>(&self, name: N) -> Result<Option<&T>> {
-        unsafe {
-            self.db
-                .borrow()
-                .get_clientdata(name)
-                .map(|p: *mut T| p.as_ref())
-        }
-    }
-
-    /// Set error code and message
-    #[cfg(feature = "modern_sqlite")] // 3.51.0
-    pub fn set_errmsg(&self, code: c_int, msg: Option<&CStr>) -> Result<()> {
-        unsafe { error::set_errmsg(self.handle(), code, msg) }
-    }
-
-    /// Low-level control of database files
-    ///
-    /// See `https://sqlite.org/c3ref/file_control.html` for details.
-    pub fn file_control<N: Name>(&self, db_name: Option<N>, op_and_arg: FileControl) -> Result<()> {
-        fn to_void<X>(r: &mut X) -> *mut c_void {
-            std::ptr::from_mut(r).cast::<c_void>()
-        }
-        let (op, arg) = match op_and_arg {
-            FileControl::SizeHint(p) => (ffi::SQLITE_FCNTL_SIZE_HINT, to_void(p)),
-            FileControl::SizeLimit(p) => (ffi::SQLITE_FCNTL_SIZE_LIMIT, to_void(p)),
-            FileControl::ChunkSize(p) => (ffi::SQLITE_FCNTL_CHUNK_SIZE, to_void(p)),
-            FileControl::PersistWal(p) => (ffi::SQLITE_FCNTL_PERSIST_WAL, to_void(p)),
-            FileControl::PowerSafeOverwrite(p) => {
-                (ffi::SQLITE_FCNTL_POWERSAFE_OVERWRITE, to_void(p))
-            }
-            FileControl::MMapSize(p) => (ffi::SQLITE_FCNTL_MMAP_SIZE, to_void(p)),
-            #[cfg(unix)]
-            FileControl::HasMoved(p) => (ffi::SQLITE_FCNTL_HAS_MOVED, to_void(p)),
-            FileControl::LockTimeout(p) => (ffi::SQLITE_FCNTL_LOCK_TIMEOUT, to_void(p)),
-            #[cfg(feature = "modern_sqlite")]
-            FileControl::BlockOnConnect(p) => (ffi::SQLITE_FCNTL_BLOCK_ON_CONNECT, to_void(p)),
-            FileControl::DataVersion(p) => (ffi::SQLITE_FCNTL_DATA_VERSION, to_void(p)),
-            FileControl::ReserveBytes(p) => (ffi::SQLITE_FCNTL_RESERVE_BYTES, to_void(p)),
-        };
-        unsafe { self.db.borrow().file_control(db_name, op, arg) }
     }
 }
 
@@ -1180,7 +1106,7 @@ impl fmt::Debug for Connection {
 ///
 /// # Warning
 ///
-/// There is no recovery on parsing error, when an invalid statement is found in `sql`, SQLite cannot jump to the next statement.
+/// There is no recovery on parsing error, when a invalid statement is found in `sql`, SQLite cannot jump to the next statement.
 /// So you should break the loop when an error is raised by the `next` method.
 ///
 /// ```rust
@@ -1328,7 +1254,7 @@ impl Default for OpenFlags {
 
 bitflags::bitflags! {
     /// Prepare flags. See
-    /// [sqlite3_prepare_v3](https://sqlite.org/c3ref/c_prepare_dont_log.html) for details.
+    /// [sqlite3_prepare_v3](https://sqlite.org/c3ref/c_prepare_normalize.html) for details.
     #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
     #[repr(C)]
     pub struct PrepFlags: c_uint {
@@ -1338,9 +1264,6 @@ bitflags::bitflags! {
         const SQLITE_PREPARE_NO_VTAB = 0x04;
         /// Prevents SQL compiler errors from being sent to the error log.
         const SQLITE_PREPARE_DONT_LOG = 0x10;
-        /// Causes the SQL compiler to enforce security constraints that would otherwise only be enforced when parsing
-        /// the database schema.
-        const SQLITE_PREPARE_FROM_DDL = 0x20; // 3.53.0
     }
 }
 
@@ -1363,51 +1286,16 @@ impl InterruptHandle {
     }
 }
 
-/// Standard File Control Opcodes
-///
-/// See `https://sqlite.org/c3ref/c_fcntl_begin_atomic_write.html` for explanations of each.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum FileControl<'p> {
-    // Write the current state of the lock
-    //LockState = ffi::SQLITE_FCNTL_LOCKSTATE,
-    /// Give the VFS layer a hint of how large the database file will grow to be during the current transaction.
-    SizeHint(&'p mut ffi::sqlite3_int64),
-    /// Used by in-memory VFS that implements `sqlite3_deserialize()` to set an upper bound on the size of the in-memory database.
-    SizeLimit(&'p mut ffi::sqlite3_int64),
-    /// Used to request that the VFS extends and truncates the database file in chunks of a size specified by the user.
-    ChunkSize(&'p mut c_int),
-    /// Used to set or query the persistent Write Ahead Log setting.
-    PersistWal(&'p mut c_int),
-    /// Used to set or query the persistent "powersafe-overwrite" or "PSOW" setting.
-    PowerSafeOverwrite(&'p mut c_int),
-    /// Used to query or set the maximum number of bytes that will be used for memory-mapped I/O.
-    MMapSize(&'p mut ffi::sqlite3_int64),
-    /// Whether or not the file has been renamed, moved, or deleted since it was first opened.
-    #[cfg(unix)]
-    HasMoved(&'p mut c_int),
-    /// Used to configure a VFS to block for up to M milliseconds before failing when attempting to obtain a file lock using the xLock or xShmLock methods of the VFS.
-    LockTimeout(&'p mut c_int),
-    /// Used to configure the VFS to block when taking a SHARED lock to connect to a wal mode database.
-    #[cfg(feature = "modern_sqlite")]
-    BlockOnConnect(&'p mut c_int),
-    /// Detect changes to a database file.
-    DataVersion(&'p mut c_uint),
-    /// Used to query or set the reserve bytes
-    ReserveBytes(&'p mut c_int),
-}
-
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md");
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod test {
-    use std::assert_matches;
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
     use super::*;
-    use fallible_iterator::FallibleIterator as _;
+    use fallible_iterator::FallibleIterator;
     use std::error::Error as StdError;
     use std::fmt;
 
@@ -1532,16 +1420,18 @@ mod test {
     #[test]
     fn test_open_failure() {
         let filename = "no_such_file.db";
-        assert_matches!(
-            Connection::open_with_flags(filename, OpenFlags::SQLITE_OPEN_READ_ONLY),
-            Err(Error::SqliteFailure(
-                ffi::Error {
-                    code: ErrorCode::CannotOpen,
-                    extended_code: ffi::SQLITE_CANTOPEN,
-                },
-                Some(msg)
-            )) if msg.contains(filename)
-        );
+        let result = Connection::open_with_flags(filename, OpenFlags::SQLITE_OPEN_READ_ONLY);
+        let err = result.unwrap_err();
+        if let Error::SqliteFailure(e, Some(msg)) = err {
+            assert_eq!(ErrorCode::CannotOpen, e.code);
+            assert_eq!(ffi::SQLITE_CANTOPEN, e.extended_code);
+            assert!(
+                msg.contains(filename),
+                "error message '{msg}' does not contain '{filename}'"
+            );
+        } else {
+            panic!("SqliteFailure expected");
+        }
     }
 
     #[cfg(unix)]
@@ -1549,7 +1439,7 @@ mod test {
     fn test_invalid_unicode_file_names() -> Result<()> {
         use std::ffi::OsStr;
         use std::fs::File;
-        use std::os::unix::ffi::OsStrExt as _;
+        use std::os::unix::ffi::OsStrExt;
         let temp_dir = tempfile::tempdir().unwrap();
 
         let path = temp_dir.path();
@@ -1701,11 +1591,11 @@ mod test {
 
         let stmt = db.prepare("SELECT * FROM foo")?;
         assert_eq!(stmt.column_count(), 1);
-        assert_eq!(stmt.column_names().collect::<Vec<_>>(), vec!["x"]);
+        assert_eq!(stmt.column_names(), vec!["x"]);
 
         let stmt = db.prepare("SELECT x AS a, x AS b FROM foo")?;
         assert_eq!(stmt.column_count(), 2);
-        assert_eq!(stmt.column_names().collect::<Vec<_>>(), vec!["a", "b"]);
+        assert_eq!(stmt.column_names(), vec!["a", "b"]);
         Ok(())
     }
 
@@ -1958,16 +1848,13 @@ mod test {
 
         let result = db.execute("INSERT INTO foo (x) VALUES (NULL)", []);
 
-        assert_matches!(
-            result.unwrap_err(),
-            Error::SqliteFailure(
-                ffi::Error {
-                    code: ErrorCode::ConstraintViolation,
-                    extended_code: ffi::SQLITE_CONSTRAINT_NOTNULL
-                },
-                _
-            )
-        );
+        match result.unwrap_err() {
+            Error::SqliteFailure(err, _) => {
+                assert_eq!(err.code, ErrorCode::ConstraintViolation);
+                assert_eq!(err.extended_code, ffi::SQLITE_CONSTRAINT_NOTNULL);
+            }
+            err => panic!("Unexpected error {err}"),
+        }
         Ok(())
     }
 
@@ -2376,6 +2263,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "modern_sqlite")]
     fn test_returning() -> Result<()> {
         let db = Connection::open_in_memory()?;
         db.execute_batch("CREATE TABLE foo(x INTEGER PRIMARY KEY)")?;
@@ -2415,6 +2303,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "modern_sqlite")]
     fn test_db_name() -> Result<()> {
         let db = Connection::open_in_memory()?;
         assert_eq!(db.db_name(0)?, "main");
@@ -2426,6 +2315,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "modern_sqlite")]
     fn test_is_interrupted() -> Result<()> {
         let db = Connection::open_in_memory()?;
         assert!(!db.is_interrupted());
@@ -2438,104 +2328,5 @@ mod test {
     fn release_memory() -> Result<()> {
         let db = Connection::open_in_memory()?;
         db.release_memory()
-    }
-
-    #[test]
-    fn client_data() -> Result<()> {
-        let db = Connection::open_in_memory()?;
-        let name = c"my_data";
-        {
-            unsafe { db.set_clientdata(name, None::<c_void>)? };
-        }
-        {
-            let data = "my_value".to_owned();
-            unsafe { db.set_clientdata(name, Some(data))? };
-        }
-        {
-            if let Some(data) = unsafe { db.get_clientdata::<String, _>(name) }? {
-                assert_eq!(*data, "my_value");
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    #[cfg(feature = "modern_sqlite")] // 3.51.0
-    fn set_errmsg() -> Result<()> {
-        let db = Connection::open_in_memory()?;
-        let code: i32 = ffi::SQLITE_MISUSE;
-        let msg = c"Oops";
-        db.set_errmsg(code, Some(msg))?;
-        let ptr = unsafe { db.handle() };
-        assert_eq!(unsafe { ffi::sqlite3_errcode(ptr) }, code);
-        assert_eq!(unsafe { CStr::from_ptr(ffi::sqlite3_errmsg(ptr)) }, msg);
-        Ok(())
-    }
-
-    #[cfg_attr(
-        all(target_family = "wasm", target_os = "unknown"),
-        ignore = "no filesystem on this platform"
-    )]
-    #[test]
-    fn file_control() -> Result<()> {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let path = temp_dir.path().join("file_control.db3");
-        let db = Connection::open(&path)?;
-
-        let mut size = 20971520;
-        db.file_control(DEFAULT_NAME, FileControl::SizeHint(&mut size))?;
-
-        let mut size = -1;
-        assert_matches!(
-            db.file_control(DEFAULT_NAME, FileControl::SizeLimit(&mut size),),
-            Err(Error::SqliteFailure(
-                ffi::Error {
-                    code: ErrorCode::NotFound,
-                    extended_code: ffi::SQLITE_NOTFOUND,
-                },
-                None
-            ))
-        );
-
-        let mut size = 32768;
-        db.file_control(DEFAULT_NAME, FileControl::ChunkSize(&mut size))?;
-
-        let mut persist_wal = -1;
-        db.file_control(DEFAULT_NAME, FileControl::PersistWal(&mut persist_wal))?;
-        assert_ne!(persist_wal, -1);
-        persist_wal = 1;
-        db.file_control(DEFAULT_NAME, FileControl::PersistWal(&mut persist_wal))?;
-
-        let mut psow = -1;
-        db.file_control(DEFAULT_NAME, FileControl::PowerSafeOverwrite(&mut psow))?;
-        assert_ne!(psow, -1);
-
-        let mut mmap_size = -1;
-        db.file_control(DEFAULT_NAME, FileControl::MMapSize(&mut mmap_size))?;
-        assert_ne!(mmap_size, -1);
-
-        #[cfg(unix)]
-        {
-            let mut has_moved = -1;
-            db.file_control(DEFAULT_NAME, FileControl::HasMoved(&mut has_moved))?;
-            assert_ne!(has_moved, -1);
-        }
-
-        #[cfg(feature = "modern_sqlite")]
-        {
-            let mut boc = 1;
-            db.file_control(DEFAULT_NAME, FileControl::BlockOnConnect(&mut boc))
-                .unwrap_err();
-        }
-
-        let mut data_version = 0;
-        db.file_control(DEFAULT_NAME, FileControl::DataVersion(&mut data_version))?;
-        assert_ne!(data_version, 0);
-
-        let mut reserve_bytes = -1;
-        db.file_control(DEFAULT_NAME, FileControl::ReserveBytes(&mut reserve_bytes))?;
-        assert_ne!(reserve_bytes, -1);
-
-        Ok(())
     }
 }

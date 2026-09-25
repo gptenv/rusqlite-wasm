@@ -3,7 +3,7 @@
 // still warn for anything that's not used by either, though.
 #![cfg_attr(not(feature = "vtab"), allow(dead_code))]
 use crate::ffi;
-use std::ffi::{CStr, c_char};
+use std::ffi::{c_char, CStr};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
@@ -54,7 +54,7 @@ impl SqliteMallocString {
     /// allocated by `sqlite3_malloc64`, and that SQLite expects us to free it!
     #[inline]
     pub(crate) unsafe fn from_raw(ptr: *mut c_char) -> Option<Self> {
-        unsafe { NonNull::new(ptr).map(|p| Self::from_raw_nonnull(p)) }
+        NonNull::new(ptr).map(|p| Self::from_raw_nonnull(p))
     }
 
     /// Get the pointer behind `self`. After this is called, we no longer manage
@@ -125,7 +125,7 @@ impl SqliteMallocString {
                     NonNull::new(ffi::sqlite3_malloc64(len_to_alloc).cast::<c_char>())
                 })
                 .unwrap_or_else(|| {
-                    use std::alloc::{Layout, handle_alloc_error};
+                    use std::alloc::{handle_alloc_error, Layout};
                     // Report via handle_alloc_error so that it can be handled with any
                     // other allocation errors and properly diagnosed.
                     //
@@ -144,7 +144,7 @@ impl SqliteMallocString {
             let buf: *mut c_char = res_ptr.as_ptr().cast::<c_char>();
             src_ptr.copy_to_nonoverlapping(buf, src_len);
             buf.add(src_len).write(0);
-            debug_assert_eq!(CStr::from_ptr(res_ptr.as_ptr()).to_bytes(), bytes);
+            debug_assert_eq!(std::ffi::CStr::from_ptr(res_ptr.as_ptr()).to_bytes(), bytes);
             Self::from_raw_nonnull(res_ptr)
         }
     }
@@ -164,7 +164,7 @@ impl Drop for SqliteMallocString {
     }
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod test {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use wasm_bindgen_test::wasm_bindgen_test as test;
@@ -214,8 +214,14 @@ mod test {
             for (i, s) in v.chunks_mut(2).enumerate() {
                 let s0 = std::mem::replace(&mut s[0], std::ptr::null_mut());
                 let s1 = std::mem::replace(&mut s[1], std::ptr::null_mut());
-                assert_eq!(CStr::from_ptr(s0).to_str().unwrap(), &i.to_string());
-                assert_eq!(CStr::from_ptr(s1).to_str().unwrap(), &format!("abc {i} 😀"));
+                assert_eq!(
+                    std::ffi::CStr::from_ptr(s0).to_str().unwrap(),
+                    &i.to_string()
+                );
+                assert_eq!(
+                    std::ffi::CStr::from_ptr(s1).to_str().unwrap(),
+                    &format!("abc {i} 😀")
+                );
                 let _ = SqliteMallocString::from_raw(s0).unwrap();
                 let _ = SqliteMallocString::from_raw(s1).unwrap();
             }

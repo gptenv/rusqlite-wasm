@@ -165,10 +165,10 @@ impl Blob<'_> {
     #[inline]
     pub fn read_at_exact(&self, buf: &mut [u8], read_start: usize) -> Result<()> {
         let n = self.read_at(buf, read_start)?;
-        if n == buf.len() {
-            Ok(())
-        } else {
+        if n != buf.len() {
             Err(Error::BlobSizeError)
+        } else {
+            Ok(())
         }
     }
 
@@ -182,20 +182,20 @@ impl Blob<'_> {
     ) -> Result<&'a mut [u8]> {
         let buflen = buf.len();
         let initted = self.raw_read_at(buf, read_start)?;
-        if initted.len() == buflen {
-            Ok(initted)
-        } else {
+        if initted.len() != buflen {
             Err(Error::BlobSizeError)
+        } else {
+            Ok(initted)
         }
     }
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod test {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{Connection, MAIN_DB, Result};
+    use crate::{Connection, Result, MAIN_DB};
     // to ensure we don't modify seek pos
     use std::io::Seek as _;
 

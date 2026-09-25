@@ -6,16 +6,14 @@ use wasm_bindgen_test::wasm_bindgen_test as test;
 #[test]
 fn test_dummy_module() -> rusqlite::Result<()> {
     use rusqlite::vtab::{
-        Context, Filters, IndexInfo, Module, VTab, VTabConnection, VTabCursor, sqlite3_vtab,
-        sqlite3_vtab_cursor,
+        eponymous_only_module, sqlite3_vtab, sqlite3_vtab_cursor, Context, Filters, IndexInfo,
+        VTab, VTabConnection, VTabCursor,
     };
-    use rusqlite::{Connection, Result, version_number};
-    use std::borrow::Cow;
-    use std::ffi::CStr;
+    use rusqlite::{version_number, Connection, Result};
     use std::marker::PhantomData;
     use std::os::raw::c_int;
 
-    const MODULE: Module<DummyTab> = Module::eponymous_only_module();
+    let module = eponymous_only_module::<DummyTab>();
 
     #[repr(C)]
     struct DummyTab {
@@ -29,22 +27,18 @@ fn test_dummy_module() -> rusqlite::Result<()> {
 
         fn connect(
             _: &mut VTabConnection,
-            aux: Option<&()>,
-            _module_name: &[u8],
-            _database_name: &[u8],
-            _table_name: &[u8],
+            _aux: Option<&()>,
             _args: &[&[u8]],
-        ) -> Result<(Cow<'static, CStr>, Self)> {
-            debug_assert_eq!(aux, None);
+        ) -> Result<(String, Self)> {
             let vtab = Self {
                 base: sqlite3_vtab::default(),
             };
-            Ok((Cow::Borrowed(c"CREATE TABLE x(value)"), vtab))
+            Ok(("CREATE TABLE x(value)".to_owned(), vtab))
         }
 
-        fn best_index(&self, info: &mut IndexInfo) -> Result<bool> {
+        fn best_index(&self, info: &mut IndexInfo) -> Result<()> {
             info.set_estimated_cost(1.);
-            Ok(true)
+            Ok(())
         }
 
         fn open(&'vtab mut self) -> Result<DummyTabCursor<'vtab>> {
@@ -83,7 +77,7 @@ fn test_dummy_module() -> rusqlite::Result<()> {
         }
 
         fn column(&self, ctx: &mut Context, _: c_int) -> Result<()> {
-            ctx.set_result(self.row_id)
+            ctx.set_result(&self.row_id)
         }
 
         fn rowid(&self) -> Result<i64> {
@@ -93,7 +87,7 @@ fn test_dummy_module() -> rusqlite::Result<()> {
 
     let db = Connection::open_in_memory()?;
 
-    db.create_module::<DummyTab, _>(c"dummy", &MODULE, None)?;
+    db.create_module::<DummyTab, _>(c"dummy", module, None)?;
 
     let version = version_number();
     if version < 3_009_000 {

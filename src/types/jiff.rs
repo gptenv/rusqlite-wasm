@@ -1,12 +1,12 @@
 //! Convert some `jiff` types.
 
 use jiff::{
-    Timestamp,
     civil::{Date, DateTime, Time},
+    Timestamp,
 };
 
+use crate::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use crate::Result;
-use crate::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Type, ValueRef};
 
 /// Gregorian calendar date => "YYYY-MM-DD"
 impl ToSql for Date {
@@ -71,14 +71,9 @@ impl ToSql for Timestamp {
     }
 }
 
-/// RFC3339 ("YYYY-MM-DD HH:MM:SS.SSS[+-]HH:MM") or unix timestamp (in seconds) into `Timestamp`.
+/// RFC3339 ("YYYY-MM-DD HH:MM:SS.SSS[+-]HH:MM") into `Timestamp`.
 impl FromSql for Timestamp {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        if value.data_type() == Type::Integer {
-            return value
-                .as_i64()
-                .and_then(|i| Timestamp::from_second(i).map_err(FromSqlError::other));
-        }
         value
             .as_str()?
             .parse::<Timestamp>()
@@ -86,20 +81,20 @@ impl FromSql for Timestamp {
     }
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod test {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
     use crate::{Connection, Result};
     use jiff::{
-        Timestamp,
         civil::{Date, DateTime, Time},
+        Timestamp,
     };
 
     fn checked_memory_handle() -> Result<Connection> {
         let db = Connection::open_in_memory()?;
-        db.execute_batch("CREATE TABLE foo (t TEXT, i INTEGER AS (strftime('%s', t)), b BLOB)")?;
+        db.execute_batch("CREATE TABLE foo (t TEXT, b BLOB)")?;
         Ok(db)
     }
 
@@ -175,8 +170,6 @@ mod test {
         assert_eq!("2016-02-23T23:56:04Z", s);
         let v: Timestamp = db.one_column("SELECT t FROM foo", [])?;
         assert_eq!(ts, v);
-        let v: Timestamp = db.one_column("SELECT i FROM foo", [])?;
-        assert_eq!(ts, v);
 
         let r: Result<Timestamp> = db.one_column("SELECT '2023-02-29T00:00:00Z'", []);
         assert!(r.is_err());
@@ -186,7 +179,7 @@ mod test {
 
     #[test]
     fn test_timestamp_various_formats() -> Result<()> {
-        let db = Connection::open_in_memory()?;
+        let db = checked_memory_handle()?;
         // Copied over from a test in `src/types/time.rs`. The format numbers
         // come from <https://sqlite.org/lang_datefunc.html>.
         let tests = vec![

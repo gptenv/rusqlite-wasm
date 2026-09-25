@@ -1,13 +1,13 @@
 //! Add, remove, or modify a collation
 use std::cmp::Ordering;
-use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ffi::{c_char, c_int, c_void, CStr};
 use std::panic::catch_unwind;
 use std::ptr;
 use std::slice;
 
 use crate::ffi;
 use crate::util::free_boxed_value;
-use crate::{Connection, Error, InnerConnection, Name, Result};
+use crate::{Connection, InnerConnection, Name, Result};
 
 impl Connection {
     /// Add or modify a collation.
@@ -71,23 +71,24 @@ impl InnerConnection {
         where
             C: Fn(&str, &str) -> Ordering,
         {
-            let r = unsafe {
-                catch_unwind(|| {
-                    let boxed_f: *mut C = arg1.cast::<C>();
-                    assert!(!boxed_f.is_null(), "Internal error - null function pointer");
-                    let s1 = {
-                        let c_slice = slice::from_raw_parts(arg3.cast::<u8>(), arg2 as usize);
-                        String::from_utf8_lossy(c_slice)
-                    };
-                    let s2 = {
-                        let c_slice = slice::from_raw_parts(arg5.cast::<u8>(), arg4 as usize);
-                        String::from_utf8_lossy(c_slice)
-                    };
-                    (*boxed_f)(s1.as_ref(), s2.as_ref())
-                })
-            };
-            let Ok(t) = r else {
-                return -1; // FIXME How ?
+            let r = catch_unwind(|| {
+                let boxed_f: *mut C = arg1.cast::<C>();
+                assert!(!boxed_f.is_null(), "Internal error - null function pointer");
+                let s1 = {
+                    let c_slice = slice::from_raw_parts(arg3.cast::<u8>(), arg2 as usize);
+                    String::from_utf8_lossy(c_slice)
+                };
+                let s2 = {
+                    let c_slice = slice::from_raw_parts(arg5.cast::<u8>(), arg4 as usize);
+                    String::from_utf8_lossy(c_slice)
+                };
+                (*boxed_f)(s1.as_ref(), s2.as_ref())
+            });
+            let t = match r {
+                Err(_) => {
+                    return -1; // FIXME How ?
+                }
+                Ok(r) => r,
             };
 
             match t {
@@ -137,29 +138,17 @@ impl InnerConnection {
                 // TODO: validate
                 return;
             }
-            unsafe {
-                let callback: fn(&Connection, &str) -> Result<()> = mem::transmute(arg1);
-                let res = catch_unwind(|| {
-                    let conn = Connection::from_handle(arg2).unwrap();
-                    let collation_name = CStr::from_ptr(arg3)
-                        .to_str()
-                        .expect("illegal collation sequence name");
-                    callback(&conn, collation_name)
-                })
-                .unwrap_or_else(|_| Err(Error::UnwindingPanic));
-                if let Err(err) = res {
-                    #[cfg(feature = "modern_sqlite")]
-                    // 3.51.0
-                    if let Ok(msg) = std::ffi::CString::new(format!("{err}")) {
-                        let _ = crate::error::set_errmsg(
-                            arg2,
-                            err.sqlite_extended_error_code()
-                                .unwrap_or(ffi::SQLITE_ERROR),
-                            Some(&msg),
-                        );
-                    }
-                    return;
-                }
+
+            let callback: fn(&Connection, &str) -> Result<()> = mem::transmute(arg1);
+            let res = catch_unwind(|| {
+                let conn = Connection::from_handle(arg2).unwrap();
+                let collation_name = CStr::from_ptr(arg3)
+                    .to_str()
+                    .expect("illegal collation sequence name");
+                callback(&conn, collation_name)
+            });
+            if res.is_err() {
+                return; // FIXME How ?
             }
         }
 
@@ -190,13 +179,13 @@ impl InnerConnection {
     }
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod test {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use crate::{Connection, Result, error, ffi};
-    use fallible_streaming_iterator::FallibleStreamingIterator as _;
+    use crate::{Connection, Result};
+    use fallible_streaming_iterator::FallibleStreamingIterator;
     use std::cmp::Ordering;
     use unicase::UniCase;
 
@@ -236,23 +225,6 @@ mod test {
         let db = Connection::open_in_memory()?;
         db.collation_needed(collation_needed)?;
         collate(db)
-    }
-
-    #[test]
-    fn test_collation_needed_error() -> Result<()> {
-        let db = Connection::open_in_memory()?;
-        db.collation_needed(|_, _| {
-            Err(error::error_from_sqlite_code(
-                ffi::SQLITE_ERROR,
-                Some("Oops".to_owned()),
-            ))
-        })?;
-        let err = collate(db).unwrap_err();
-        assert_eq!(
-            err.sqlite_extended_error_code(),
-            Some(ffi::SQLITE_ERROR_MISSING_COLLSEQ)
-        );
-        Ok(())
     }
 
     #[test]

@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 #[wasm_bindgen]
-unsafe extern "C" {
+extern "C" {
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
 }

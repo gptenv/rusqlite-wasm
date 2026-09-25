@@ -1,4 +1,4 @@
-use crate::{Error, Result, Statement, ffi};
+use crate::{ffi, Error, Result, Statement};
 use std::ffi::CStr;
 
 mod sealed {
@@ -14,7 +14,7 @@ mod sealed {
 /// A trait implemented by types that can index into parameters of a statement.
 ///
 /// It is only implemented for `usize` and `&str` and `&CStr`.
-pub trait BindIndex: sealed::Sealed + Copy {
+pub trait BindIndex: sealed::Sealed {
     /// Returns the index of the associated parameter, or `Error` if no such
     /// parameter exists.
     fn idx(&self, stmt: &Statement<'_>) -> Result<usize>;
@@ -49,9 +49,9 @@ impl BindIndex for &CStr {
     }
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod test {
-    use crate::{Connection, Error, Result, ffi};
+    use crate::{ffi, Connection, Error, Result};
 
     #[test]
     fn invalid_name() -> Result<()> {
