@@ -7,9 +7,9 @@ use crate::error::{error_from_handle, error_from_sqlite_code};
 use crate::ffi;
 use crate::{Connection, Error, Name, Result};
 
-/// Shared (SQLITE_SERIALIZE_NOCOPY) serialized database
+/// Shared (`SQLITE_SERIALIZE_NOCOPY`) serialized database
 pub struct SharedData<'conn> {
-    phantom: PhantomData<&'conn Connection>,
+    phantom: PhantomData<&'conn mut Connection>,
     ptr: NonNull<u8>,
     sz: usize,
 }
@@ -24,6 +24,7 @@ impl OwnedData {
     /// # Safety
     ///
     /// Caller must be certain that `ptr` is allocated by `sqlite3_malloc64`.
+    #[must_use]
     pub unsafe fn from_raw_nonnull(ptr: NonNull<u8>, sz: usize) -> Self {
         Self { ptr, sz }
     }
@@ -45,7 +46,7 @@ impl Drop for OwnedData {
 
 /// Serialized database
 pub enum Data<'conn> {
-    /// Shared (SQLITE_SERIALIZE_NOCOPY) serialized database
+    /// Shared (`SQLITE_SERIALIZE_NOCOPY`) serialized database
     Shared(SharedData<'conn>),
     /// Owned serialized database
     Owned(OwnedData),
@@ -56,8 +57,9 @@ impl Deref for Data<'_> {
 
     fn deref(&self) -> &[u8] {
         let (ptr, sz) = match self {
-            Data::Owned(OwnedData { ptr, sz }) => (ptr.as_ptr(), *sz),
-            Data::Shared(SharedData { ptr, sz, .. }) => (ptr.as_ptr(), *sz),
+            Data::Owned(OwnedData { ptr, sz }) | Data::Shared(SharedData { ptr, sz, .. }) => {
+                (ptr.as_ptr(), *sz)
+            }
         };
         unsafe { std::slice::from_raw_parts(ptr, sz) }
     }
@@ -65,19 +67,39 @@ impl Deref for Data<'_> {
 
 impl Connection {
     /// Serialize a database.
-    pub fn serialize<N: Name>(&self, schema: N) -> Result<Data<'_>> {
+    ///
+    /// ```compile_fail
+    /// use rusqlite::{Connection, Result, MAIN_DB};
+    /// use rusqlite::serialize::Data;
+    /// fn main() -> Result<()> {
+    ///     let mut src = Connection::open_in_memory()?;
+    ///     let data = src.serialize(MAIN_DB)?;
+    ///     let mut dst = Connection::open_in_memory()?;
+    ///     let Data::Owned(data) = data else {
+    ///         panic!("expected OwnedData")
+    ///     };
+    ///     dst.deserialize(MAIN_DB, data, false)?;
+    ///     let data = dst.serialize(MAIN_DB).unwrap(); // mutable borrow occurs here
+    ///     dst.execute("INSERT INTO t VALUES (zeroblob(4096))", [])?; // <- immutable borrow occurs here
+    ///     let Data::Shared(_) = data else { // mutable borrow later used here
+    ///         panic!("expected SharedData")
+    ///     };
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn serialize<N: Name>(&mut self, schema: N) -> Result<Data<'_>> {
         let schema = schema.as_cstr()?;
         let mut sz = 0;
         let mut ptr: *mut u8 = unsafe {
             ffi::sqlite3_serialize(
                 self.handle(),
                 schema.as_ptr(),
-                &mut sz,
+                &raw mut sz,
                 ffi::SQLITE_SERIALIZE_NOCOPY,
             )
         };
         Ok(if ptr.is_null() {
-            ptr = unsafe { ffi::sqlite3_serialize(self.handle(), schema.as_ptr(), &mut sz, 0) };
+            ptr = unsafe { ffi::sqlite3_serialize(self.handle(), schema.as_ptr(), &raw mut sz, 0) };
             if ptr.is_null() {
                 return Err(unsafe { error_from_handle(self.handle(), ffi::SQLITE_NOMEM) });
             }
@@ -127,7 +149,7 @@ impl Connection {
         let sz = data.len().try_into().unwrap();
         self.deserialize_(
             schema,
-            data.as_ptr() as *mut _,
+            data.as_ptr().cast_mut(),
             sz,
             ffi::SQLITE_DESERIALIZE_READONLY,
         )
@@ -179,7 +201,7 @@ impl Connection {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod test {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use wasm_bindgen_test::wasm_bindgen_test as test;
@@ -189,7 +211,7 @@ mod test {
 
     #[test]
     fn serialize() -> Result<()> {
-        let db = Connection::open_in_memory()?;
+        let mut db = Connection::open_in_memory()?;
         db.execute_batch("CREATE TABLE x AS SELECT 'data'")?;
         let data = db.serialize(MAIN_DB)?;
         let Data::Owned(data) = data else {
@@ -201,7 +223,7 @@ mod test {
 
     #[test]
     fn deserialize_read_exact() -> Result<()> {
-        let db = Connection::open_in_memory()?;
+        let mut db = Connection::open_in_memory()?;
         db.execute_batch("CREATE TABLE x AS SELECT 'data'")?;
         let data = db.serialize(MAIN_DB)?;
 
@@ -222,7 +244,7 @@ mod test {
 
     #[test]
     fn deserialize() -> Result<()> {
-        let src = Connection::open_in_memory()?;
+        let mut src = Connection::open_in_memory()?;
         src.execute_batch("CREATE TABLE x AS SELECT 'data'")?;
         let data = src.serialize(MAIN_DB)?;
         let Data::Owned(data) = data else {

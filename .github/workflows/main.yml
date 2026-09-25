@@ -9,7 +9,10 @@ on:
       - master
   schedule:
     - cron: "00 01 * * *"
+  workflow_dispatch:
+
 env:
+  MSRV: 1.88.0
   RUST_BACKTRACE: short
   # CI builds don't benefit very much from this.
   CARGO_INCREMENTAL: 0
@@ -43,7 +46,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # This has a matcher for test panics, so we use it even though elsewhere
       # we use actions-rs/toolchain.
       - uses: hecrj/setup-rust-action@v2
@@ -96,11 +99,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         # TODO: find a way to test this on windows :(
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # This has a matcher for test panics, so we use it even though elsewhere
       # we use actions-rs/toolchain.
       - uses: hecrj/setup-rust-action@v2
@@ -133,7 +136,7 @@ jobs:
     name: Test wasm32-unknown-unknown
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Test unit and integration tests
@@ -143,7 +146,7 @@ jobs:
     name: Test with sqlcipher
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: hecrj/setup-rust-action@v2
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get install sqlcipher libsqlcipher-dev
@@ -156,7 +159,7 @@ jobs:
     name: Address Sanitizer
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # Need nightly rust.
       - uses: hecrj/setup-rust-action@v2
         with:
@@ -175,11 +178,22 @@ jobs:
           RUST_BACKTRACE: "0"
         run: cargo -Z build-std test --features 'bundled-full session buildtime_bindgen preupdate_hook with-asan' --target x86_64-unknown-linux-gnu
 
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: $MSRV
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --features bundled-full
+
   direct-minimal-versions:
     name: Test min versions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: hecrj/setup-rust-action@v2
         with:
           rust-version: nightly
@@ -192,7 +206,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: hecrj/setup-rust-action@v2
         with:
           components: clippy
@@ -201,12 +215,25 @@ jobs:
       # Clippy with all non-conflicting features
       - run: cargo clippy --all-targets --workspace --features 'bundled-full session buildtime_bindgen preupdate_hook' -- -D warnings
 
+  # Ensure miri doesn't complain.
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hecrj/setup-rust-action@v2
+        with:
+          rust-version: nightly
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo miri test --lib --features bundled-full
+
   # Ensure patch is formatted.
   fmt:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: hecrj/setup-rust-action@v2
         with:
           components: rustfmt
@@ -217,7 +244,7 @@ jobs:
     name: Docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: hecrj/setup-rust-action@v2
       - uses: Swatinem/rust-cache@v2
         with: { shared-key: fullBuild }
@@ -229,7 +256,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: sudo apt-get install libsqlite3-dev
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: "llvm-tools-preview"
